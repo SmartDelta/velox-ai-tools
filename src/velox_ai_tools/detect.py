@@ -3,8 +3,14 @@
 Input ``--frames``: JSON list of ``{"id": ..., "img_path": ...}``.
 Output ``--out``: ``{"weights", "names": {id: name}, "frames": [{"id", "width",
 "height", "detections": [{"cls", "cls_id", "conf", "box": [x1,y1,x2,y2],
-"poly": [[x,y],...] | null}]}], "seconds", ...}``. Boxes are in full-frame
-pixels; nothing here knows about cameras or the ground.
+"poly": [[x,y],...] | null}]}], "seconds", "resumed", ...}``. Boxes are in
+full-frame pixels; nothing here knows about cameras or the ground.
+
+Stop and resume: every finished frame is appended at once to
+``<out>.partial.jsonl`` (one JSON record per line, flushed), so a killed run
+loses at most the frame it was on. ``--resume`` keeps those records and only
+runs the frames that are not in the file yet; the final ``--out`` is written
+in the input order and the partial file is removed.
 """
 from __future__ import annotations
 
@@ -12,10 +18,32 @@ import argparse
 import json
 import time
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from .common import emit_result, load_model, names_list, progress
 from .tiling import detect_image, ultralytics_predict
+
+
+def partial_path(out: Any) -> Path:
+    return Path(str(out) + ".partial.jsonl")
+
+
+def read_partial(path: Path) -> Dict[str, Dict[str, Any]]:
+    """{frame id: record} from a partial file; a torn last line is dropped."""
+    done: Dict[str, Dict[str, Any]] = {}
+    if not path.is_file():
+        return done
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(rec, dict) and "id" in rec:
+            done[str(rec["id"])] = rec
+    return done
 
 
 def add_arguments(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
@@ -31,34 +59,51 @@ def add_arguments(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
     p.add_argument("--device", default="auto")
     p.add_argument("--classes", type=int, nargs="*", default=None, help="only these class ids")
     p.add_argument("--merge-iou", type=float, default=0.5, help="IoU at which boxes from neighbouring tiles merge")
+    p.add_argument("--resume", action="store_true",
+                   help="continue a stopped run: frames already in <out>.partial.jsonl are kept and skipped")
     return p
 
 
 def run(args: argparse.Namespace) -> int:
     import cv2
 
-    frames = json.loads(Path(args.frames).read_text(encoding="utf-8"))
+    frames: List[Dict[str, Any]] = json.loads(Path(args.frames).read_text(encoding="utf-8"))
+    out_path = Path(args.out)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    partial = partial_path(out_path)
+    done = read_partial(partial) if args.resume else {}
+    if not args.resume and partial.exists():
+        partial.unlink()
+    todo = [fr for fr in frames if str(fr["id"]) not in done]
+    n = len(frames)
+    resumed = n - len(todo)
+    if resumed:
+        print(f"resuming: {resumed}/{n} frames already done", flush=True)
+    t0 = time.time()
     model = load_model(args.weights)
-    names = {i: n for i, n in enumerate(names_list(model))}
+    names = {i: name for i, name in enumerate(names_list(model))}
     predict = ultralytics_predict(model, imgsz=args.imgsz, conf=args.conf, device=args.device,
                                   classes=args.classes, iou=args.iou)
-    out: Dict[str, Any] = {"weights": str(args.weights), "names": names, "frames": [],
-                           "tile": args.tile, "overlap": args.overlap, "imgsz": args.imgsz, "conf": args.conf}
-    t0 = time.time()
-    n = len(frames)
-    for i, fr in enumerate(frames):
-        img = cv2.imread(str(fr["img_path"]))
-        if img is None:
-            out["frames"].append({"id": fr["id"], "error": "unreadable", "detections": []})
-        else:
-            dets = detect_image(predict, img, tile=args.tile, overlap=args.overlap,
-                                batch=args.batch, names=names, iou_thr=args.merge_iou)
-            out["frames"].append({"id": fr["id"], "width": int(img.shape[1]), "height": int(img.shape[0]),
-                                  "detections": dets})
-        progress(i + 1, n)
-    out["seconds"] = round(time.time() - t0, 1)
-    Path(args.out).parent.mkdir(parents=True, exist_ok=True)
-    Path(args.out).write_text(json.dumps(out), encoding="utf-8")
+    with partial.open("a", encoding="utf-8") as fh:
+        for fr in todo:
+            img = cv2.imread(str(fr["img_path"]))
+            if img is None:
+                rec: Dict[str, Any] = {"id": fr["id"], "error": "unreadable", "detections": []}
+            else:
+                dets = detect_image(predict, img, tile=args.tile, overlap=args.overlap,
+                                    batch=args.batch, names=names, iou_thr=args.merge_iou)
+                rec = {"id": fr["id"], "width": int(img.shape[1]), "height": int(img.shape[0]), "detections": dets}
+            fh.write(json.dumps(rec) + "\n")
+            fh.flush()
+            done[str(fr["id"])] = rec
+            progress(len(done), n)
+    out: Dict[str, Any] = {"weights": str(args.weights), "names": names,
+                           "frames": [done[str(fr["id"])] for fr in frames if str(fr["id"]) in done],
+                           "tile": args.tile, "overlap": args.overlap, "imgsz": args.imgsz, "conf": args.conf,
+                           "resumed": resumed, "seconds": round(time.time() - t0, 1)}
+    out_path.write_text(json.dumps(out), encoding="utf-8")
+    partial.unlink(missing_ok=True)
     total = sum(len(f["detections"]) for f in out["frames"])
-    emit_result({"ok": True, "frames": n, "detections": total, "seconds": out["seconds"], "out": str(args.out)})
+    emit_result({"ok": True, "frames": n, "detections": total, "seconds": out["seconds"], "resumed": resumed,
+                 "out": str(out_path)})
     return 0

@@ -45,6 +45,35 @@ def test_detect_tiles_a_big_frame(fake_ultralytics, tmp_path, capsys):
     assert max(d["box"][0] for d in dets) > 1280
 
 
+def test_detect_resumes_from_the_partial_file_and_a_fresh_run_discards_it(fake_ultralytics, tmp_path, capsys):
+    """A killed run leaves <out>.partial.jsonl; --resume keeps those frames
+    and only runs the rest; the final JSON comes out in the input order."""
+    frames = [{"id": f"cam1:{i}", "img_path": str(make_image(tmp_path / f"f{i}.jpg"))} for i in range(3)]
+    fj = tmp_path / "frames.json"
+    fj.write_text(json.dumps(frames), encoding="utf-8")
+    out = tmp_path / "dets.json"
+    partial = tmp_path / "dets.json.partial.jsonl"
+    partial.write_text(json.dumps({"id": "cam1:0", "width": 1, "height": 1, "detections": []}) + "\n"
+                       + '{"torn line', encoding="utf-8")
+    assert cli.main(["detect", "--weights", _weights(tmp_path), "--frames", str(fj), "--out", str(out),
+                     "--tile", "0", "--device", "cpu", "--resume"]) == 0
+    r = last_result(capsys)
+    assert r["resumed"] == 1 and r["frames"] == 3
+    assert sum(1 for c in fake_ultralytics.calls if c[0] == "predict") == 2, "only the two missing frames ran"
+    data = json.loads(out.read_text(encoding="utf-8"))
+    assert [f["id"] for f in data["frames"]] == ["cam1:0", "cam1:1", "cam1:2"]
+    assert data["frames"][0]["width"] == 1, "the kept record was not recomputed"
+    assert data["frames"][1]["width"] == 200 and data["resumed"] == 1
+    assert not partial.exists(), "the partial file goes once the final JSON is written"
+    # a fresh run (no --resume) discards a stale partial file and does every frame
+    partial.write_text(json.dumps({"id": "cam1:0", "width": 1, "height": 1, "detections": []}) + "\n", encoding="utf-8")
+    fake_ultralytics.calls.clear()
+    assert cli.main(["detect", "--weights", _weights(tmp_path), "--frames", str(fj), "--out", str(out),
+                     "--tile", "0", "--device", "cpu"]) == 0
+    assert sum(1 for c in fake_ultralytics.calls if c[0] == "predict") == 3
+    assert json.loads(out.read_text(encoding="utf-8"))["frames"][0]["width"] == 200 and not partial.exists()
+
+
 def _photos(tmp_path: Path):
     img_dir = tmp_path / "ds" / "images" / "train"
     lbl_dir = tmp_path / "ds" / "labels" / "train"

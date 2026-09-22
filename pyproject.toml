@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "velox-ai-tools"
+version = "0.1.0"
+description = "Open-source detector, pre-labelling and training command line (Ultralytics YOLO) that Velox SmartDelta Player runs as a separate program"
+readme = "README.md"
+license = {text = "AGPL-3.0-or-later"}
+requires-python = ">=3.10"
+authors = [{name = "SmartDelta"}]
+classifiers = [
+    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Image Recognition",
+]
+# torch/torchvision come in through ultralytics; install.ps1 installs the CUDA
+# build of torch first so pip does not pull the CPU wheel.
+dependencies = [
+    "ultralytics>=8.3",
+    "numpy",
+    "opencv-python",
+    "pillow",
+]
+
+[project.optional-dependencies]
+rfdetr = ["rfdetr", "supervision"]
+onnx = ["onnxruntime"]
+test = ["pytest"]
+
+[project.scripts]
+velox-ai = "velox_ai_tools.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

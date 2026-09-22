@@ -45,6 +45,23 @@ def test_detect_tiles_a_big_frame(fake_ultralytics, tmp_path, capsys):
     assert max(d["box"][0] for d in dets) > 1280
 
 
+def test_detect_with_a_region_analyses_only_that_band_and_reports_full_frame_pixels(fake_ultralytics, tmp_path, capsys):
+    """A 360 panorama's road band: the crop is what the model sees, the box
+    comes back where it is in the whole frame."""
+    img = make_image(tmp_path / "pano.jpg", 400, 200)
+    fj = tmp_path / "frames.json"
+    fj.write_text(json.dumps([{"id": "p", "img_path": str(img)}]), encoding="utf-8")
+    out = tmp_path / "dets.json"
+    seen = []
+    fake_ultralytics.scenario = staticmethod(lambda item, i, kw: (seen.append(item.shape), [(3, 0.9, 10.0, 10.0, 60.0, 50.0)])[1])
+    assert cli.main(["detect", "--weights", _weights(tmp_path), "--frames", str(fj), "--out", str(out),
+                     "--tile", "0", "--device", "cpu", "--region", "0", "0.5", "1", "0.9"]) == 0
+    assert seen == [(80, 400, 3)], "the model saw the 400 x 80 px band, not the frame"
+    fr = json.loads(out.read_text(encoding="utf-8"))["frames"][0]
+    assert fr["width"] == 400 and fr["height"] == 200 and fr["region"] == [0.0, 0.5, 1.0, 0.9]
+    assert fr["detections"][0]["box"] == [10.0, 110.0, 60.0, 150.0], "offset by the band's top (100 px)"
+
+
 def test_detect_resumes_from_the_partial_file_and_a_fresh_run_discards_it(fake_ultralytics, tmp_path, capsys):
     """A killed run leaves <out>.partial.jsonl; --resume keeps those frames
     and only runs the rest; the final JSON comes out in the input order."""

@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from .common import emit_result, load_model, names_list, progress
-from .tiling import detect_image, ultralytics_predict
+from .tiling import crop_bounds, detect_image, ultralytics_predict
 
 
 def partial_path(out: Any) -> Path:
@@ -61,6 +61,9 @@ def add_arguments(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
     p.add_argument("--merge-iou", type=float, default=0.5, help="IoU at which boxes from neighbouring tiles merge")
     p.add_argument("--resume", action="store_true",
                    help="continue a stopped run: frames already in <out>.partial.jsonl are kept and skipped")
+    p.add_argument("--region", type=float, nargs=4, metavar=("X0", "Y0", "X1", "Y1"), default=None,
+                   help="only this part of every frame (normalised 0..1, e.g. the road band of a 360 panorama); "
+                        "boxes come back in full-frame pixels")
     return p
 
 
@@ -90,9 +93,22 @@ def run(args: argparse.Namespace) -> int:
             if img is None:
                 rec: Dict[str, Any] = {"id": fr["id"], "error": "unreadable", "detections": []}
             else:
+                full_h, full_w = img.shape[:2]
+                ox = oy = 0
+                if args.region:
+                    ox, oy, x1, y1 = crop_bounds(full_w, full_h, args.region)
+                    img = img[oy:y1, ox:x1]
                 dets = detect_image(predict, img, tile=args.tile, overlap=args.overlap,
                                     batch=args.batch, names=names, iou_thr=args.merge_iou)
-                rec = {"id": fr["id"], "width": int(img.shape[1]), "height": int(img.shape[0]), "detections": dets}
+                if ox or oy:
+                    for d in dets:
+                        b = d["box"]
+                        d["box"] = [b[0] + ox, b[1] + oy, b[2] + ox, b[3] + oy]
+                        if d.get("poly"):
+                            d["poly"] = [[u + ox, v + oy] for u, v in d["poly"]]
+                rec = {"id": fr["id"], "width": int(full_w), "height": int(full_h), "detections": dets}
+                if args.region:
+                    rec["region"] = [float(v) for v in args.region]
             fh.write(json.dumps(rec) + "\n")
             fh.flush()
             done[str(fr["id"])] = rec

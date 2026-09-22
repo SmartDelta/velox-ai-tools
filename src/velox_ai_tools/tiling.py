@@ -38,6 +38,20 @@ def tile_grid(width: int, height: int, tile: int, overlap: float = 0.2) -> List[
             for y in _starts(height) for x in _starts(width)]
 
 
+def crop_bounds(width: int, height: int, region: Optional[Sequence[float]]) -> Tuple[int, int, int, int]:
+    """Pixel bounds (x0, y0, x1, y1) of a normalised region (x0 y0 x1 y1 in
+    0..1) in a frame; the whole frame without a region. A road in a 360
+    panorama, say, is the band between the horizon and the vehicle body."""
+    if not region:
+        return 0, 0, int(width), int(height)
+    rx0, ry0, rx1, ry1 = (min(1.0, max(0.0, float(v))) for v in region[:4])
+    x0 = int(round(rx0 * width))
+    y0 = int(round(ry0 * height))
+    x1 = max(x0 + 1, int(round(rx1 * width)))
+    y1 = max(y0 + 1, int(round(ry1 * height)))
+    return x0, y0, min(x1, int(width)), min(y1, int(height))
+
+
 def _iou(a: Box, b: Box) -> float:
     ix0, iy0 = max(a[0], b[0]), max(a[1], b[1])
     ix1, iy1 = min(a[2], b[2]), min(a[3], b[3])

@@ -18,7 +18,7 @@ published under the same licence as GitHub releases.
 ## Install (Windows)
 
 ```powershell
-git clone <this repository> velox_ai_tools
+git clone https://github.com/SmartDelta/velox-ai-tools.git velox_ai_tools
 cd velox_ai_tools
 .\install.ps1                 # %LOCALAPPDATA%\VeloxAITools\.venv, PyTorch cu118
 .\install.ps1 -Cuda cpu       # no NVIDIA GPU

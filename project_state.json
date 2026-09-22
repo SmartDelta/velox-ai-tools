@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "project": "Velox AI Tools",
+  "mantis_id": 29,
+  "github_repo": "SmartDelta/velox-ai-tools",
+  "licence": "AGPL-3.0-or-later",
+  "noodrem_active": false,
+  "active_branch": "main",
+  "last_agent_action": "Develop",
+  "last_updated": "2026-09-22T15:30:00",
+  "updated_by": "Develop",
+  "agents": {
+    "Plan": {"status": "idle", "last_seen": null},
+    "Develop": {"status": "idle", "last_seen": "2026-09-22T15:30:00"},
+    "Test": {"status": "idle", "last_seen": null},
+    "Security": {"status": "idle", "last_seen": null},
+    "Documenteer": {"status": "idle", "last_seen": null}
+  },
+  "task_queue": [
+    {
+      "id": "#1",
+      "task": "[Mantis #930 / Velox] velox-ai: the Ultralytics-based detector, pre-label and training commands as a separate AGPL-3.0 program (version, info, detect, prelabel, infer, train, train-rdd2022, two-stage); install.ps1; 24 offline tests",
+      "status": "done",
+      "assigned_to": "Develop",
+      "created": "2026-09-22T15:30:00"
+    },
+    {
+      "id": "#2",
+      "task": "GitHub release with the road damage weight file road_damage_rdd2022_yolo11s.pt (+ .json sidecar), AGPL-3.0 like the tool; Velox' Download button points at this repository",
+      "status": "planned",
+      "assigned_to": "Develop",
+      "created": "2026-09-22T15:30:00"
+    }
+  ],
+  "shared_context": {
+    "latest_commit_hash": "b941ca7",
+    "validation_results": "2026-09-22: python -m pytest (fake ultralytics) 24 passed",
+    "notes": "Velox (repo smartdeltarene/swepth-path, Mantis 16) starts velox-ai as a child process through ai_tools.py; contract: PROGRESS: i/n lines + one RESULT: {json} line, exit 0 = ok. Keep the command lines and the JSON shapes backwards compatible; Velox' tests fake this tool. Never import Velox code here and never let Velox import this package."
+  },
+  "handoff_log": [
+    {"ts": "2026-09-22T15:30:00", "from": "Develop", "to": "Develop", "note": "Repository created (public, AGPL-3.0) and registered: Mantis project 29, GitHub SmartDelta/velox-ai-tools."}
+  ]
+}

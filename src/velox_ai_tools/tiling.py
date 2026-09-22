@@ -41,15 +41,32 @@ def tile_grid(width: int, height: int, tile: int, overlap: float = 0.2) -> List[
 def crop_bounds(width: int, height: int, region: Optional[Sequence[float]]) -> Tuple[int, int, int, int]:
     """Pixel bounds (x0, y0, x1, y1) of a normalised region (x0 y0 x1 y1 in
     0..1) in a frame; the whole frame without a region. A road in a 360
-    panorama, say, is the band between the horizon and the vehicle body."""
+    panorama, say, is the band between the horizon and the vehicle body.
+    x0 > x1 is a band across the seam of a panorama: x1 then lies beyond the
+    width (unwrapped), x is taken modulo the width."""
     if not region:
         return 0, 0, int(width), int(height)
     rx0, ry0, rx1, ry1 = (min(1.0, max(0.0, float(v))) for v in region[:4])
     x0 = int(round(rx0 * width))
     y0 = int(round(ry0 * height))
-    x1 = max(x0 + 1, int(round(rx1 * width)))
-    y1 = max(y0 + 1, int(round(ry1 * height)))
-    return x0, y0, min(x1, int(width)), min(y1, int(height))
+    x1 = int(round(rx1 * width)) + (int(width) if rx0 > rx1 else 0)
+    x1 = max(x0 + 1, x1)
+    y1 = max(y0 + 1, min(int(round(ry1 * height)), int(height)))
+    return x0, y0, x1, y1
+
+
+def crop_region(img: np.ndarray, region: Optional[Sequence[float]]) -> Tuple[np.ndarray, int, int]:
+    """The band of a frame as one image plus the offset (ox, oy) from crop to
+    frame pixels; across the seam the right and left parts are stitched and
+    x offsets may exceed the width (modulo the width in the frame)."""
+    if not region:
+        return img, 0, 0
+    h, w = img.shape[:2]
+    x0, y0, x1, y1 = crop_bounds(w, h, region)
+    band = img[y0:y1]
+    if x1 <= w:
+        return band[:, x0:x1], x0, y0
+    return np.concatenate([band[:, x0:w], band[:, 0:x1 - w]], axis=1), x0, y0
 
 
 def _iou(a: Box, b: Box) -> float:

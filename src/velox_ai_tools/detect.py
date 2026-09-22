@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from .common import emit_result, load_model, names_list, progress
-from .tiling import crop_bounds, detect_image, ultralytics_predict
+from .tiling import crop_region, detect_image, ultralytics_predict
 
 
 def partial_path(out: Any) -> Path:
@@ -63,7 +63,8 @@ def add_arguments(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
                    help="continue a stopped run: frames already in <out>.partial.jsonl are kept and skipped")
     p.add_argument("--region", type=float, nargs=4, metavar=("X0", "Y0", "X1", "Y1"), default=None,
                    help="only this part of every frame (normalised 0..1, e.g. the road band of a 360 panorama); "
-                        "boxes come back in full-frame pixels")
+                        "boxes come back in full-frame pixels. X0 > X1 = a band across the seam of a panorama "
+                        "(right part + left part stitched; x beyond the width = modulo the width)")
     return p
 
 
@@ -96,8 +97,7 @@ def run(args: argparse.Namespace) -> int:
                 full_h, full_w = img.shape[:2]
                 ox = oy = 0
                 if args.region:
-                    ox, oy, x1, y1 = crop_bounds(full_w, full_h, args.region)
-                    img = img[oy:y1, ox:x1]
+                    img, ox, oy = crop_region(img, args.region)
                 dets = detect_image(predict, img, tile=args.tile, overlap=args.overlap,
                                     batch=args.batch, names=names, iou_thr=args.merge_iou)
                 if ox or oy:

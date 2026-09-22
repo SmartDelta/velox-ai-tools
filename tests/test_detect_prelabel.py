@@ -62,6 +62,30 @@ def test_detect_with_a_region_analyses_only_that_band_and_reports_full_frame_pix
     assert fr["detections"][0]["box"] == [10.0, 110.0, 60.0, 150.0], "offset by the band's top (100 px)"
 
 
+def test_a_region_across_the_seam_stitches_both_ends_of_the_panorama(fake_ultralytics, tmp_path, capsys):
+    """A backward-looking 360 camera has the road ahead at both edges:
+    x0 > x1 takes the band from x0 to the right edge and on from the left
+    edge to x1; boxes are reported unwrapped (x may exceed the width)."""
+    import numpy as np
+    from PIL import Image
+    arr = np.zeros((200, 400, 3), dtype=np.uint8)
+    arr[:, 300:, 0] = 255                                            # right quarter red
+    arr[:, :100, 1] = 255                                            # left quarter green
+    Image.fromarray(arr).save(tmp_path / "pano.png")
+    fj = tmp_path / "frames.json"
+    fj.write_text(json.dumps([{"id": "p", "img_path": str(tmp_path / "pano.png")}]), encoding="utf-8")
+    out = tmp_path / "dets.json"
+    seen = []
+    fake_ultralytics.scenario = staticmethod(lambda item, i, kw: (seen.append(item.copy()), [(3, 0.9, 150.0, 10.0, 190.0, 50.0)])[1])
+    assert cli.main(["detect", "--weights", _weights(tmp_path), "--frames", str(fj), "--out", str(out),
+                     "--tile", "0", "--device", "cpu", "--region", "0.75", "0.5", "0.25", "0.9"]) == 0
+    crop = seen[0]
+    assert crop.shape == (80, 200, 3), "right 100 px + left 100 px, the 0.5..0.9 band"
+    assert int(crop[0, 0, 2]) == 255 and int(crop[0, 199, 1]) == 255, "red (right end) first, then green (left end) - BGR"
+    fr = json.loads(out.read_text(encoding="utf-8"))["frames"][0]
+    assert fr["detections"][0]["box"] == [450.0, 110.0, 490.0, 150.0], "x unwrapped: 300 + 150; modulo 400 = 50..90"
+
+
 def test_detect_resumes_from_the_partial_file_and_a_fresh_run_discards_it(fake_ultralytics, tmp_path, capsys):
     """A killed run leaves <out>.partial.jsonl; --resume keeps those frames
     and only runs the rest; the final JSON comes out in the input order."""
